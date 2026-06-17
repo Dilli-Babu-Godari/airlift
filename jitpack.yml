@@ -1,0 +1,8 @@
+jdk:
+  - openjdk25
+before_install:
+  - sdk install maven 3.9.6
+  - sdk use maven 3.9.6
+install:
+  - mvn clean install -DskipTests -Dair.check.skip-modernizer=true -Dair.check.skip-dependency=true -Dair.check.skip-enforcer=true -Dair.check.skip-checkstyle=true -pl '!drift/drift-maven-plugin'
+
