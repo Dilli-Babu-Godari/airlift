@@ -12,10 +12,18 @@
     <url>https://github.com/prestodb/airlift</url>
 
     <parent>
-        <groupId>com.facebook.airlift</groupId>
+        <groupId>com.github.Dilli-Babu-Godari.airbase</groupId>
         <artifactId>airbase</artifactId>
-        <version>110-SNAPSHOT</version>
+        <version>jdk25-upgrade-b54952758e-1</version>
+        <relativePath/>
     </parent>
+
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+    </repositories>
 
     <inceptionYear>2010</inceptionYear>
 

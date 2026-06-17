@@ -25,7 +25,6 @@ import static java.lang.Double.doubleToLongBits;
 import static java.lang.Double.longBitsToDouble;
 import static java.lang.Float.floatToIntBits;
 import static java.lang.Float.intBitsToFloat;
-import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -399,7 +398,7 @@ public class TBinaryProtocol
             throws TException
     {
         int size = checkSize(readI32());
-        checkArgument((buf.length - offset) >= size, format("Binary is too large to be read into buffer: binary size: %s, buffer size: %s, buffer offset: %s", size, buf.length, offset));
+        checkArgument((buf.length - offset) >= size, "Binary is too large to be read into buffer: binary size: %s, buffer size: %s, buffer offset: %s".formatted(size, buf.length, offset));
 
         return readAllInBatches(transport, buf, offset, size);
     }
