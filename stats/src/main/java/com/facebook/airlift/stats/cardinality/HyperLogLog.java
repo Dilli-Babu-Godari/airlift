@@ -21,10 +21,11 @@ import org.openjdk.jol.info.ClassLayout;
 import static com.facebook.airlift.stats.cardinality.Utils.indexBitLength;
 import static com.facebook.airlift.stats.cardinality.Utils.numberOfBuckets;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.lang.Math.toIntExact;
 
 public class HyperLogLog
 {
-    private static final int INSTANCE_SIZE = ClassLayout.parseClass(HyperLogLog.class).instanceSize();
+    private static final long INSTANCE_SIZE = ClassLayout.parseClass(HyperLogLog.class).instanceSize();
     private static final int MAX_NUMBER_OF_BUCKETS = 65536;
     private HllInstance instance;
 
@@ -108,7 +109,7 @@ public class HyperLogLog
 
     public int estimatedInMemorySize()
     {
-        return instance.estimatedInMemorySize() + INSTANCE_SIZE;
+        return toIntExact(instance.estimatedInMemorySize() + INSTANCE_SIZE);
     }
 
     public int estimatedSerializedSize()

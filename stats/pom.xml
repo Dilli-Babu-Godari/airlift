@@ -77,7 +77,6 @@
         <dependency>
             <groupId>org.openjdk.jol</groupId>
             <artifactId>jol-core</artifactId>
-            <version>0.2</version>
         </dependency>
 
         <!-- for testing -->

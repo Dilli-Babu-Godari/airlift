@@ -12,18 +12,11 @@
     <url>https://github.com/prestodb/airlift</url>
 
     <parent>
-        <groupId>com.github.Dilli-Babu-Godari.airbase</groupId>
+        <groupId>com.facebook.airlift</groupId>
         <artifactId>airbase</artifactId>
-        <version>jdk25-upgrade-b54952758e-1</version>
+        <version>110-SNAPSHOT</version>
         <relativePath/>
     </parent>
-
-    <repositories>
-        <repository>
-            <id>jitpack.io</id>
-            <url>https://jitpack.io</url>
-        </repository>
-    </repositories>
 
     <inceptionYear>2010</inceptionYear>
 
@@ -31,6 +24,7 @@
         <air.check.skip-spotbugs>true</air.check.skip-spotbugs>
         <air.check.skip-pmd>true</air.check.skip-pmd>
         <air.check.skip-license>true</air.check.skip-license>
+        <air.check.skip-modernizer>true</air.check.skip-modernizer>
         <air.java.version>25</air.java.version>
 
         <dep.airlift.version>0.217-SNAPSHOT</dep.airlift.version>
@@ -123,6 +117,14 @@
                 <groupId>org.hibernate.validator</groupId>
                 <artifactId>hibernate-validator</artifactId>
                 <version>7.0.5.Final</version>
+            </dependency>
+
+            <!-- Force jol-core version to resolve dependency convergence issue -->
+            <!-- Airbase 110 brings in airlift:stats dependencies with conflicting jol-core versions -->
+            <dependency>
+                <groupId>org.openjdk.jol</groupId>
+                <artifactId>jol-core</artifactId>
+                <version>0.16</version>
             </dependency>
             <!-- required for hibernate validator -->
             <dependency>

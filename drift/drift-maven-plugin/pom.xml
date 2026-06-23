@@ -78,10 +78,11 @@
 
     <build>
         <plugins>
+            <!-- Upgrade maven-plugin-plugin to 3.15.2 for Java 25 bytecode support -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-plugin-plugin</artifactId>
-                <version>3.9.0</version>
+                <version>3.15.2</version>
             </plugin>
             
             <plugin>
