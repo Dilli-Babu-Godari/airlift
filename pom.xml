@@ -5,7 +5,7 @@
     <groupId>com.facebook.airlift</groupId>
     <artifactId>airlift</artifactId>
     <packaging>pom</packaging>
-    <version>0.230-SNAPSHOT</version>
+    <version>0.231-SNAPSHOT</version>
 
     <name>airlift</name>
     <description>Airlift</description>
@@ -31,7 +31,7 @@
         <dep.packaging.version>${project.version}</dep.packaging.version>
         <dep.jetty.version>12.0.34</dep.jetty.version>
         <dep.jersey.version>4.0.0-M2</dep.jersey.version>
-        <dep.drift.version>0.230-SNAPSHOT</dep.drift.version>
+        <dep.drift.version>0.231-SNAPSHOT</dep.drift.version>
     </properties>
 
     <organization>
