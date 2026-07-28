@@ -74,10 +74,16 @@
             <artifactId>slice</artifactId>
         </dependency>
 
+        <!--
+            MRJAR POC: jol-core 0.16 is used by both tiers.
+            - Base tier (Java 17, src/main/java):      instanceSize() returns long — cast to long is a no-op but kept for clarity.
+            - Versioned tier (Java 25, src/main/java25): instanceSize() returns long — used directly, no cast.
+            Previously jol-core 0.2 was used (instanceSize() returned int).
+        -->
         <dependency>
             <groupId>org.openjdk.jol</groupId>
             <artifactId>jol-core</artifactId>
-            <version>0.2</version>
+            <version>0.16</version>
         </dependency>
 
         <!-- for testing -->
@@ -111,5 +117,64 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-</project>
 
+    <build>
+        <plugins>
+            <!--
+                MRJAR POC: Two-tier compilation for Multi-Release JAR.
+                Execution 1 (default-compile): base tier, --release 17, src/main/java → root of JAR.
+                Execution 2 (compile-java25):  versioned tier, --release 25, src/main/java25 →
+                                               META-INF/versions/25/ inside the JAR.
+                Requires maven-compiler-plugin 3.13.0+ (from Airbase 110-SNAPSHOT).
+                Building the java25 tier requires JAVA_HOME pointing to JDK 25.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <!-- Override default-compile to explicitly target Java 17 -->
+                    <execution>
+                        <id>default-compile</id>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <release>17</release>
+                        </configuration>
+                    </execution>
+                    <!-- Second execution: compile src/main/java25 at --release 25, output to META-INF/versions/25/ -->
+                    <execution>
+                        <id>compile-java25</id>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <release>25</release>
+                            <multiReleaseOutput>true</multiReleaseOutput>
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.basedir}/src/main/java25</compileSourceRoot>
+                            </compileSourceRoots>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+                MRJAR POC: Write Multi-Release: true into the JAR MANIFEST.MF.
+                This tells the JVM to honour META-INF/versions/N/ class overrides.
+                Requires maven-jar-plugin 3.4.2+ (from Airbase 110-SNAPSHOT).
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Multi-Release>true</Multi-Release>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
