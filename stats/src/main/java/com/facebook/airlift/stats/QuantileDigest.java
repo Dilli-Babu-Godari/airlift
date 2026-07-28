@@ -1,7 +1,6 @@
 package com.facebook.airlift.stats;
 
 import com.facebook.airlift.concurrent.NotThreadSafe;
-import com.facebook.airlift.stats.cardinality.SizeOf;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Ticker;
@@ -58,10 +57,12 @@ import static java.lang.String.format;
 public class QuantileDigest
 {
     private static final int MAX_BITS = 64;
-    // MRJAR POC: routed through cardinality.SizeOf so the JVM selects the correct
-    // version-tier implementation at runtime (Java 17 base or Java 25 versioned).
+    // MRJAR POC: routed through cardinality.SizeOf (fully-qualified to avoid conflict with
+    // io.airlift.slice.SizeOf imported above) so the JVM selects the correct version-tier
+    // implementation at runtime: Java 17 base tier or Java 25 versioned tier from META-INF/versions/25/.
     // Field type is long because jol-core 0.16 instanceSize() returns long.
-    private static final long QUANTILE_DIGEST_SIZE = com.facebook.airlift.stats.cardinality.SizeOf.instanceSize(QuantileDigest.class);
+    private static final long QUANTILE_DIGEST_SIZE =
+            com.facebook.airlift.stats.cardinality.SizeOf.instanceSize(QuantileDigest.class);
 
     // needs to be such that Math.exp(alpha * seconds) does not grow too big
     static final long RESCALE_THRESHOLD_SECONDS = 50;
