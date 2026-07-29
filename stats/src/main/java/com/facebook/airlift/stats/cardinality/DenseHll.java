@@ -41,19 +41,18 @@ final class DenseHll
         implements HllInstance
 {
     private static final double LINEAR_COUNTING_MIN_EMPTY_BUCKETS = 0.4;
-
     private static final int BITS_PER_BUCKET = 4;
     private static final int MAX_DELTA = (1 << BITS_PER_BUCKET) - 1;
     private static final int BUCKET_MASK = (1 << BITS_PER_BUCKET) - 1;
 
-    private static final int DENSE_INSTANCE_SIZE = ClassLayout.parseClass(DenseHll.class).instanceSize();
+    // jol-core 0.16: instanceSize() returns long
+    private static final long DENSE_INSTANCE_SIZE = ClassLayout.parseClass(DenseHll.class).instanceSize();
     private static final int OVERFLOW_GROW_INCREMENT = 5;
 
     private final byte indexBitLength;
     private byte baseline;
     private int baselineCount;
     private final byte[] deltas;
-
     private int overflows;
     private int[] overflowBuckets;
     private byte[] overflowValues;
@@ -61,9 +60,7 @@ final class DenseHll
     public DenseHll(int indexBitLength)
     {
         validatePrefixLength(indexBitLength);
-
         int numberOfBuckets = numberOfBuckets(indexBitLength);
-
         this.indexBitLength = (byte) indexBitLength;
         baselineCount = numberOfBuckets;
         deltas = new byte[numberOfBuckets * BITS_PER_BUCKET / Byte.SIZE];
@@ -74,20 +71,15 @@ final class DenseHll
     public DenseHll(Slice serialized)
     {
         BasicSliceInput input = serialized.getInput();
-
         byte formatTag = input.readByte();
         checkArgument(formatTag == Format.DENSE_V1.getTag() || formatTag == Format.DENSE_V2.getTag(), "Invalid format tag");
-
         indexBitLength = input.readByte();
         validatePrefixLength(indexBitLength);
         int numberOfBuckets = numberOfBuckets(indexBitLength);
-
         baseline = input.readByte();
         deltas = new byte[numberOfBuckets / 2];
         input.readBytes(deltas);
-
         if (formatTag == Format.DENSE_V1.getTag()) {
-            // for backward compatibility
             int bucket = input.readShort();
             byte value = input.readByte();
             if (bucket >= 0 && value > 0) {
@@ -105,15 +97,12 @@ final class DenseHll
         else if (formatTag == Format.DENSE_V2.getTag()) {
             overflows = input.readUnsignedShort();
             checkArgument(overflows <= numberOfBuckets, "Overflow entries is greater than actual number of buckets (possibly corrupt input)");
-
             overflowBuckets = new int[overflows];
             overflowValues = new byte[overflows];
-
             for (int i = 0; i < overflows; i++) {
                 overflowBuckets[i] = input.readUnsignedShort();
                 checkArgument(overflowBuckets[i] <= numberOfBuckets, "Overflow bucket index is out of range");
             }
-
             for (int i = 0; i < overflows; i++) {
                 overflowValues[i] = input.readByte();
                 checkArgument(overflowValues[i] > 0, "Overflow bucket value must be > 0");
@@ -122,14 +111,12 @@ final class DenseHll
         else {
             throw new IllegalArgumentException(String.format("Invalid format tag: %d", formatTag));
         }
-
         baselineCount = 0;
         for (int i = 0; i < numberOfBuckets; i++) {
             if (getDelta(i) == 0) {
                 baselineCount++;
             }
         }
-
         checkArgument(!input.isReadable(), "input is too big");
     }
 
@@ -143,13 +130,13 @@ final class DenseHll
     {
         int index = computeIndex(hash, indexBitLength);
         int value = computeValue(hash, indexBitLength);
-
         insert(index, value);
     }
 
     @Override
     public int estimatedInMemorySize()
     {
+        // DENSE_INSTANCE_SIZE is long; cast is safe — objects never exceed 2 GB
         return (int) (DENSE_INSTANCE_SIZE +
                 SizeOf.sizeOf(deltas) +
                 SizeOf.sizeOf(overflowBuckets) +
@@ -166,21 +153,16 @@ final class DenseHll
     public long cardinality()
     {
         int numberOfBuckets = numberOfBuckets(indexBitLength);
-
-        // if baseline is zero, then baselineCount is the number of buckets with value 0
         if ((baseline == 0) && (baselineCount > (LINEAR_COUNTING_MIN_EMPTY_BUCKETS * numberOfBuckets))) {
             return Math.round(linearCounting(baselineCount, numberOfBuckets));
         }
-
         double sum = 0;
         for (int i = 0; i < numberOfBuckets; i++) {
             int value = getValue(i);
             sum += 1.0 / (1L << value);
         }
-
         double estimate = (alpha(indexBitLength) * numberOfBuckets * numberOfBuckets) / sum;
         estimate = correctBias(estimate);
-
         return Math.round(estimate);
     }
 
@@ -190,27 +172,20 @@ final class DenseHll
         if (rawEstimate < estimates[0] || rawEstimate > estimates[estimates.length - 1]) {
             return rawEstimate;
         }
-
         double[] biases = BiasCorrection.BIAS[indexBitLength - 4];
-
         int position = search(rawEstimate, estimates);
-
         double bias;
         if (position >= 0) {
             bias = biases[position];
         }
         else {
-            // interpolate
             int insertionPoint = -(position + 1);
-
             double x0 = estimates[insertionPoint - 1];
             double y0 = biases[insertionPoint - 1];
             double x1 = estimates[insertionPoint];
             double y1 = biases[insertionPoint];
-
             bias = ((((rawEstimate - x0) * (y1 - y0)) / (x1 - x0)) + y0);
         }
-
         return rawEstimate - bias;
     }
 
@@ -218,12 +193,9 @@ final class DenseHll
     {
         int low = 0;
         int high = estimateCurve.length - 1;
-
         while (low <= high) {
             int middle = (low + high) >>> 1;
-
             double middleValue = estimateCurve[middle];
-
             if (rawEstimate > middleValue) {
                 low = middle + 1;
             }
@@ -234,7 +206,6 @@ final class DenseHll
                 return middle;
             }
         }
-
         return -(low + 1);
     }
 
@@ -242,15 +213,11 @@ final class DenseHll
     {
         int delta = value - baseline;
         final int oldDelta = getDelta(bucket);
-
         if (delta <= oldDelta || (oldDelta == MAX_DELTA && (delta <= oldDelta + getOverflow(bucket)))) {
-            // the old bucket value is (baseline + oldDelta) + possibly an overflow, so it's guaranteed to be >= the new value
             return;
         }
-
         if (delta > MAX_DELTA) {
             byte overflow = (byte) (delta - MAX_DELTA);
-
             int overflowEntry = findOverflowEntry(bucket);
             if (overflowEntry != -1) {
                 setOverflow(overflowEntry, overflow);
@@ -258,12 +225,9 @@ final class DenseHll
             else {
                 addOverflow(bucket, overflow);
             }
-
             delta = MAX_DELTA;
         }
-
         setDelta(bucket, delta);
-
         if (oldDelta == 0) {
             --baselineCount;
             adjustBaselineIfNeeded();
@@ -273,38 +237,30 @@ final class DenseHll
     public Slice serialize()
     {
         int size = estimatedSerializedSize();
-
         DynamicSliceOutput output = new DynamicSliceOutput(size)
                 .appendByte(Format.DENSE_V2.getTag())
                 .appendByte(indexBitLength)
                 .appendByte(baseline)
                 .appendBytes(deltas)
                 .appendShort(overflows);
-
-        // sort overflow arrays to get consistent serialization for equivalent HLLs
         sortOverflows();
-
         for (int i = 0; i < overflows; i++) {
             output.appendShort(overflowBuckets[i]);
         }
         for (int i = 0; i < overflows; i++) {
             output.appendByte(overflowValues[i]);
         }
-
         return output.slice();
     }
 
     private void sortOverflows()
     {
-        // traditional insertion sort (ok for small arrays)
         for (int i = 1; i < overflows; i++) {
             for (int j = i; j > 0 && overflowBuckets[j - 1] > overflowBuckets[j]; j--) {
                 int bucket = overflowBuckets[j];
                 int value = overflowValues[j];
-
                 overflowBuckets[j] = overflowBuckets[j - 1];
                 overflowValues[j] = overflowValues[j - 1];
-
                 overflowBuckets[j - 1] = bucket;
                 overflowValues[j - 1] = (byte) value;
             }
@@ -326,25 +282,21 @@ final class DenseHll
 
     public int estimatedSerializedSize()
     {
-        return SizeOf.SIZE_OF_BYTE + // type + version
-                SizeOf.SIZE_OF_BYTE + // p
-                SizeOf.SIZE_OF_BYTE + // baseline
-                (numberOfBuckets(indexBitLength) * SizeOf.SIZE_OF_BYTE) / 2 + // buckets
-                SizeOf.SIZE_OF_SHORT + // overflow bucket count
-                SizeOf.SIZE_OF_SHORT * overflows + // overflow bucket indexes
-                SizeOf.SIZE_OF_BYTE * overflows; // overflow bucket values
+        return SizeOf.SIZE_OF_BYTE +
+                SizeOf.SIZE_OF_BYTE +
+                SizeOf.SIZE_OF_BYTE +
+                (numberOfBuckets(indexBitLength) * SizeOf.SIZE_OF_BYTE) / 2 +
+                SizeOf.SIZE_OF_SHORT +
+                SizeOf.SIZE_OF_SHORT * overflows +
+                SizeOf.SIZE_OF_BYTE * overflows;
     }
 
     @SuppressWarnings("NarrowingCompoundAssignment")
     private void setDelta(int bucket, int value)
     {
         int slot = bucketToSlot(bucket);
-
-        // clear the old value
         byte clearMask = (byte) (BUCKET_MASK << shiftForBucket(bucket));
         deltas[slot] &= ~clearMask;
-
-        // set the new value
         byte setMask = (byte) (value << shiftForBucket(bucket));
         deltas[slot] |= setMask;
     }
@@ -352,7 +304,6 @@ final class DenseHll
     private int getDelta(int bucket)
     {
         int slot = bucketToSlot(bucket);
-
         return (deltas[slot] >> shiftForBucket(bucket)) & BUCKET_MASK;
     }
 
@@ -360,11 +311,9 @@ final class DenseHll
     int getValue(int bucket)
     {
         int delta = getDelta(bucket);
-
         if (delta == MAX_DELTA) {
             delta += getOverflow(bucket);
         }
-
         return baseline + delta;
     }
 
@@ -372,26 +321,19 @@ final class DenseHll
     {
         while (baselineCount == 0) {
             baseline++;
-
             for (int bucket = 0; bucket < numberOfBuckets(indexBitLength); ++bucket) {
                 int delta = getDelta(bucket);
-
                 boolean hasOverflow = false;
                 if (delta == MAX_DELTA) {
-                    // scan overflows
                     for (int i = 0; i < overflows; i++) {
                         if (overflowBuckets[i] == bucket) {
                             hasOverflow = true;
                             overflowValues[i]--;
-
                             if (overflowValues[i] == 0) {
                                 int lastEntry = overflows - 1;
                                 if (i < lastEntry) {
-                                    // remove the entry by moving the last entry to this position
                                     overflowBuckets[i] = overflowBuckets[lastEntry];
                                     overflowValues[i] = overflowValues[lastEntry];
-
-                                    // clean up to make it easier to catch bugs
                                     overflowBuckets[lastEntry] = -1;
                                     overflowValues[lastEntry] = 0;
                                 }
@@ -401,15 +343,10 @@ final class DenseHll
                         }
                     }
                 }
-
                 if (!hasOverflow) {
-                    // getDelta is guaranteed to return a value greater than zero
-                    // because baselineCount is zero (i.e., number of deltas with zero value)
-                    // So it's safe to decrement here
                     delta--;
                     setDelta(bucket, delta);
                 }
-
                 if (delta == 0) {
                     ++baselineCount;
                 }
@@ -417,9 +354,6 @@ final class DenseHll
         }
     }
 
-    /**
-     * Returns "this" for chaining
-     */
     public DenseHll mergeWith(DenseHll other)
     {
         if (indexBitLength != other.indexBitLength) {
@@ -428,24 +362,18 @@ final class DenseHll
                     numberOfBuckets(indexBitLength),
                     numberOfBuckets(other.indexBitLength)));
         }
-
         int newBaseline = Math.max(this.baseline, other.baseline);
         int baselineCount = 0;
-
         int bucket = 0;
         for (int i = 0; i < deltas.length; i++) {
             int newSlot = 0;
-
             byte slot1 = deltas[i];
             byte slot2 = other.deltas[i];
-
             for (int shift = 4; shift >= 0; shift -= 4) {
                 int delta1 = (slot1 >>> shift) & 0b1111;
                 int delta2 = (slot2 >>> shift) & 0b1111;
-
                 int value1 = this.baseline + delta1;
                 int value2 = other.baseline + delta2;
-
                 int overflowEntry = -1;
                 if (delta1 == MAX_DELTA) {
                     overflowEntry = findOverflowEntry(bucket);
@@ -453,41 +381,27 @@ final class DenseHll
                         value1 += overflowValues[overflowEntry];
                     }
                 }
-
                 if (delta2 == MAX_DELTA) {
                     value2 += other.getOverflow(bucket);
                 }
-
                 int newValue = Math.max(value1, value2);
                 int newDelta = newValue - newBaseline;
-
                 if (newDelta == 0) {
                     baselineCount++;
                 }
-
                 newDelta = updateOverflow(bucket, overflowEntry, newDelta);
-
                 newSlot <<= 4;
                 newSlot |= newDelta;
                 bucket++;
             }
-
             this.deltas[i] = (byte) newSlot;
         }
-
         this.baseline = (byte) newBaseline;
         this.baselineCount = baselineCount;
-
-        // all baseline values in one of the HLLs lost to the values
-        // in the other HLL, so we need to adjust the final baseline
         adjustBaselineIfNeeded();
-
         return this;
     }
 
-    /**
-     * Returns "this" for chaining
-     */
     public DenseHll mergeWith(SparseHll other)
     {
         if (indexBitLength != other.getIndexBitLength()) {
@@ -496,9 +410,7 @@ final class DenseHll
                     numberOfBuckets(indexBitLength),
                     numberOfBuckets(other.getIndexBitLength())));
         }
-
         other.eachBucket(this::insert);
-
         return this;
     }
 
@@ -526,7 +438,6 @@ final class DenseHll
     {
         if (delta > MAX_DELTA) {
             if (overflowEntry != -1) {
-                // update existing overflow
                 setOverflow(overflowEntry, (byte) (delta - MAX_DELTA));
             }
             else {
@@ -537,7 +448,6 @@ final class DenseHll
         else if (overflowEntry != -1) {
             removeOverflow(overflowEntry);
         }
-
         return delta;
     }
 
@@ -548,7 +458,6 @@ final class DenseHll
 
     private void removeOverflow(int overflowEntry)
     {
-        // remove existing overflow
         overflowBuckets[overflowEntry] = overflowBuckets[overflows - 1];
         overflowValues[overflowEntry] = overflowValues[overflows - 1];
         overflows--;
@@ -556,19 +465,16 @@ final class DenseHll
 
     private void addOverflow(int bucket, byte overflow)
     {
-        // add new delta
         overflowBuckets = Ints.ensureCapacity(overflowBuckets, overflows + 1, OVERFLOW_GROW_INCREMENT);
         overflowValues = Bytes.ensureCapacity(overflowValues, overflows + 1, OVERFLOW_GROW_INCREMENT);
-
         overflowBuckets[overflows] = bucket;
         overflowValues[overflows] = overflow;
-
         overflows++;
     }
 
     public static int estimatedInMemorySize(int indexBitLength)
     {
-        // note: we don't take into account overflow entries since their number can vary
+        // DENSE_INSTANCE_SIZE is long; cast is safe — objects never exceed 2 GB
         return (int) (DENSE_INSTANCE_SIZE + SizeOf.sizeOfByteArray(numberOfBuckets(indexBitLength) / 2));
     }
 
@@ -579,7 +485,6 @@ final class DenseHll
 
     private static int shiftForBucket(int bucket)
     {
-        // ((1 - bucket) % 2) * BITS_PER_BUCKET
         return ((~bucket) & 1) << 2;
     }
 
@@ -597,21 +502,17 @@ final class DenseHll
                 zeroDeltas++;
             }
         }
-
         checkState(zeroDeltas == baselineCount, "baselineCount (%s) doesn't match number of zero deltas (%s)",
                 baselineCount, zeroDeltas);
-
         Set<Integer> overflows = new HashSet<>();
         for (int i = 0; i < this.overflows; i++) {
             int bucket = overflowBuckets[i];
             overflows.add(bucket);
-
             checkState(overflowValues[i] > 0, "Overflow at %s for bucket %s is 0", i, bucket);
             checkState(getDelta(bucket) == MAX_DELTA,
                     "delta in bucket %s is less than MAX_DELTA (%s < %s) even though there's an associated overflow entry",
                     bucket, getDelta(bucket), MAX_DELTA);
         }
-
         checkState(overflows.size() == this.overflows, "Duplicate overflow buckets: %s",
                 Ints.asList(Arrays.copyOf(overflowBuckets, this.overflows)));
     }

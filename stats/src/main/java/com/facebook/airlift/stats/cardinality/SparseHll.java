@@ -40,10 +40,9 @@ import static java.util.Comparator.comparingInt;
 final class SparseHll
         implements HllInstance
 {
-    private static final int SPARSE_INSTANCE_SIZE = ClassLayout.parseClass(SparseHll.class).instanceSize();
+    // jol-core 0.16: instanceSize() returns long
+    private static final long SPARSE_INSTANCE_SIZE = ClassLayout.parseClass(SparseHll.class).instanceSize();
 
-    // 6 bits to encode the number of zeros after the truncated hash
-    // and be able to fit the encoded value in an integer
     private static final int VALUE_BITS = 6;
     private static final int VALUE_MASK = (1 << VALUE_BITS) - 1;
     private static final int EXTENDED_PREFIX_BITS = Integer.SIZE - VALUE_BITS;
@@ -55,7 +54,6 @@ final class SparseHll
     public SparseHll(int indexBitLength)
     {
         validatePrefixLength(indexBitLength);
-
         this.indexBitLength = (byte) indexBitLength;
         entries = new int[1];
     }
@@ -63,19 +61,14 @@ final class SparseHll
     public SparseHll(Slice serialized)
     {
         BasicSliceInput input = serialized.getInput();
-
         checkArgument(input.readByte() == Format.SPARSE_V2.getTag(), "invalid format tag");
-
         indexBitLength = input.readByte();
         validatePrefixLength(indexBitLength);
-
         numberOfEntries = input.readShort();
-
         entries = new int[numberOfEntries];
         for (int i = 0; i < numberOfEntries; i++) {
             entries[i] = input.readInt();
         }
-
         checkArgument(!input.isReadable(), "input is too big");
     }
 
@@ -86,31 +79,23 @@ final class SparseHll
 
     public void insertHash(long hash)
     {
-        // TODO: investigate whether accumulate, sort and merge results in better performance due to avoiding the shift+insert in every call
-
         int bucket = Utils.computeIndex(hash, EXTENDED_PREFIX_BITS);
         int position = searchBucket(bucket);
 
-        // add entry if missing
         if (position < 0) {
-            // ensure capacity
             if (numberOfEntries + 1 > entries.length) {
                 entries = Arrays.copyOf(entries, entries.length + 10);
             }
-
-            // shift right
             int insertionPoint = -(position + 1);
             if (insertionPoint < numberOfEntries) {
                 System.arraycopy(entries, insertionPoint, entries, insertionPoint + 1, numberOfEntries - insertionPoint);
             }
-
             entries[insertionPoint] = encode(hash);
             numberOfEntries++;
         }
         else {
             int currentEntry = entries[position];
             int newValue = Utils.numberOfLeadingZeros(hash, EXTENDED_PREFIX_BITS);
-
             if (decodeBucketValue(currentEntry) < newValue) {
                 entries[position] = encode(bucket, newValue);
             }
@@ -159,22 +144,12 @@ final class SparseHll
     {
         for (int i = 0; i < numberOfEntries; i++) {
             int entry = entries[i];
-
-            // The leading EXTENDED_BITS_LENGTH are a proper subset of the original hash.
-            // Since we're guaranteed that indexBitLength is <= EXTENDED_BITS_LENGTH,
-            // the value stored in those bits corresponds to the bucket index in the dense HLL
             int bucket = decodeBucketIndex(indexBitLength, entry);
-
-            // compute the number of zeros between indexBitLength and EXTENDED_BITS_LENGTH
             int zeros = Integer.numberOfLeadingZeros(entry << indexBitLength);
-
-            // if zeros > EXTENDED_BITS_LENGTH - indexBits, it means all those bits were zeros,
-            // so look at the entry value, which contains the number of leading 0 *after* EXTENDED_BITS_LENGTH
             int bits = EXTENDED_PREFIX_BITS - indexBitLength;
             if (zeros >= bits) {
                 zeros = bits + decodeBucketValue(entry);
             }
-
             listener.visit(bucket, zeros + 1);
         }
     }
@@ -182,19 +157,16 @@ final class SparseHll
     @Override
     public long cardinality()
     {
-        // Estimate the cardinality using linear counting over the theoretical 2^EXTENDED_BITS_LENGTH buckets available due
-        // to the fact that we're recording the raw leading EXTENDED_BITS_LENGTH of the hash. This produces much better precision
-        // while in the sparse regime.
         int totalBuckets = numberOfBuckets(EXTENDED_PREFIX_BITS);
         int zeroBuckets = totalBuckets - numberOfEntries;
-
         return Math.round(linearCounting(zeroBuckets, totalBuckets));
     }
 
     @Override
     public int estimatedInMemorySize()
     {
-        return SPARSE_INSTANCE_SIZE + toIntExact(sizeOf(entries));
+        // SPARSE_INSTANCE_SIZE is long; toIntExact is safe — objects never exceed 2 GB
+        return toIntExact(SPARSE_INSTANCE_SIZE) + toIntExact(sizeOf(entries));
     }
 
     @Override
@@ -203,19 +175,13 @@ final class SparseHll
         return indexBitLength;
     }
 
-    /**
-     * Returns a index of the entry if found. Otherwise, it returns -(insertionPoint + 1)
-     */
     private int searchBucket(int bucketIndex)
     {
         int low = 0;
         int high = numberOfEntries - 1;
-
         while (low <= high) {
             int middle = (low + high) >>> 1;
-
             int middleBucketIndex = decodeBucketIndex(entries[middle]);
-
             if (bucketIndex > middleBucketIndex) {
                 low = middle + 1;
             }
@@ -226,8 +192,7 @@ final class SparseHll
                 return middle;
             }
         }
-
-        return -(low + 1); // not found... return insertion point
+        return -(low + 1);
     }
 
     private int[] mergeEntries(SparseHll other)
@@ -235,12 +200,10 @@ final class SparseHll
         int[] result = new int[numberOfEntries + other.numberOfEntries];
         int leftIndex = 0;
         int rightIndex = 0;
-
         int index = 0;
         while (leftIndex < numberOfEntries && rightIndex < other.numberOfEntries) {
             int left = decodeBucketIndex(entries[leftIndex]);
             int right = decodeBucketIndex(other.entries[rightIndex]);
-
             if (left < right) {
                 result[index++] = entries[leftIndex++];
             }
@@ -254,44 +217,35 @@ final class SparseHll
                 rightIndex++;
             }
         }
-
         while (leftIndex < numberOfEntries) {
             result[index++] = entries[leftIndex++];
         }
-
         while (rightIndex < other.numberOfEntries) {
             result[index++] = other.entries[rightIndex++];
         }
-
         return Arrays.copyOf(result, index);
     }
 
     public Slice serialize()
     {
-        int size = SizeOf.SIZE_OF_BYTE + // format tag
-                SizeOf.SIZE_OF_BYTE + // p
-                SizeOf.SIZE_OF_SHORT + // number of entries
-                SizeOf.SIZE_OF_INT * numberOfEntries;
-
+        int size = SizeOf.SIZE_OF_BYTE + SizeOf.SIZE_OF_BYTE + SizeOf.SIZE_OF_SHORT + SizeOf.SIZE_OF_INT * numberOfEntries;
         DynamicSliceOutput out = new DynamicSliceOutput(size)
                 .appendByte(Format.SPARSE_V2.getTag())
                 .appendByte(indexBitLength)
                 .appendShort(numberOfEntries);
-
         for (int i = 0; i < numberOfEntries; i++) {
             out.appendInt(entries[i]);
         }
-
         return out.slice();
     }
 
     @Override
     public int estimatedSerializedSize()
     {
-        return SizeOf.SIZE_OF_SHORT // type + version
-                + SizeOf.SIZE_OF_BYTE  // p
-                + SizeOf.SIZE_OF_SHORT // numberOfEntries
-                + SizeOf.SIZE_OF_INT * numberOfEntries; // entries
+        return SizeOf.SIZE_OF_SHORT
+                + SizeOf.SIZE_OF_BYTE
+                + SizeOf.SIZE_OF_SHORT
+                + SizeOf.SIZE_OF_INT * numberOfEntries;
     }
 
     private static void validatePrefixLength(int indexBitLength)
@@ -305,7 +259,6 @@ final class SparseHll
         checkState(numberOfEntries <= entries.length,
                 "Expected number of hashes (%s) larger than array length (%s)",
                 numberOfEntries, entries.length);
-
         checkState(Ordering.from(comparingInt(e -> decodeBucketIndex((Integer) e)))
                         .isOrdered(Ints.asList(Arrays.copyOf(entries, numberOfEntries))),
                 "entries are not sorted");

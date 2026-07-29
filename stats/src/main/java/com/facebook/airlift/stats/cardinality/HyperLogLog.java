@@ -24,7 +24,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 public class HyperLogLog
 {
-    private static final int INSTANCE_SIZE = ClassLayout.parseClass(HyperLogLog.class).instanceSize();
+    // jol-core 0.16: instanceSize() returns long
+    private static final long INSTANCE_SIZE = ClassLayout.parseClass(HyperLogLog.class).instanceSize();
     private static final int MAX_NUMBER_OF_BUCKETS = 65536;
     private HllInstance instance;
 
@@ -36,21 +37,18 @@ public class HyperLogLog
     public static HyperLogLog newInstance(int numberOfBuckets)
     {
         checkArgument(numberOfBuckets <= MAX_NUMBER_OF_BUCKETS, "numberOfBuckets must be <= %s, actual: %s", MAX_NUMBER_OF_BUCKETS, numberOfBuckets);
-
         return new HyperLogLog(new SparseHll(indexBitLength(numberOfBuckets)));
     }
 
     public static HyperLogLog newInstance(Slice serialized)
     {
         checkArgument(serialized.getByte(0) != Format.SPARSE_V1.getTag(), "Sparse v1 encoding no longer supported");
-
         if (SparseHll.canDeserialize(serialized)) {
             return new HyperLogLog(new SparseHll(serialized));
         }
         else if (DenseHll.canDeserialize(serialized)) {
             return new HyperLogLog(new DenseHll(serialized));
         }
-
         throw new IllegalArgumentException("Cannot deserialize HyperLogLog");
     }
 
@@ -64,16 +62,9 @@ public class HyperLogLog
         addHash(Murmur3Hash128.hash64(value));
     }
 
-    /**
-     * Adds a value that has already been hashed to the set of values tracked by this HyperLogLog instance.
-     *
-     * @param hash The hash should be the 64 least significant bits of the murmur3_128 hash of the value.
-     * For example: io.airlift.slice.Murmur3.hash64(value).
-     */
     public void addHash(long hash)
     {
         instance.insertHash(hash);
-
         if (instance instanceof SparseHll) {
             instance = makeDenseIfNecessary((SparseHll) instance);
         }
@@ -91,7 +82,6 @@ public class HyperLogLog
         else {
             DenseHll dense = instance.toDense();
             dense.mergeWith(other.instance.toDense());
-
             instance = dense;
         }
     }
@@ -108,7 +98,8 @@ public class HyperLogLog
 
     public int estimatedInMemorySize()
     {
-        return instance.estimatedInMemorySize() + INSTANCE_SIZE;
+        // INSTANCE_SIZE is long; cast is safe — objects never exceed 2 GB
+        return instance.estimatedInMemorySize() + (int) INSTANCE_SIZE;
     }
 
     public int estimatedSerializedSize()
@@ -147,7 +138,6 @@ public class HyperLogLog
         if (instance.estimatedInMemorySize() > DenseHll.estimatedInMemorySize(instance.getIndexBitLength())) {
             return instance.toDense();
         }
-
         return instance;
     }
 }
